@@ -15,18 +15,28 @@ export class StatementsRepository implements IStatementsRepository {
 
   async create({
     user_id,
+    sender_id,
     amount,
     description,
     type
   }: ICreateStatementDTO): Promise<Statement> {
+
+    let senderId;
+
+    if (sender_id) {
+      senderId = user_id;
+      user_id = sender_id;
+    }
+
     const statement = this.repository.create({
       user_id,
+      sender_id: senderId,
       amount,
       description,
-      type
+      type,
     });
 
-    return this.repository.save(statement);
+    return await this.repository.save(statement);
   }
 
   async findStatementOperation({ statement_id, user_id }: IGetStatementOperationDTO): Promise<Statement | undefined> {
@@ -40,22 +50,37 @@ export class StatementsRepository implements IStatementsRepository {
       { balance: number } | { balance: number, statement: Statement[] }
     >
   {
-    const statement = await this.repository.find({
+    let statement = await this.repository.find({
       where: { user_id }
     });
 
-    const balance = statement.reduce((acc, operation) => {
-      if (operation.type === 'deposit') {
-        return acc + operation.amount;
+    const statementSended = await this.repository.find({
+      where: { sender_id: user_id }
+    });
+
+    let balance = statement.reduce((acc, operation) => {
+      if (operation.type === 'deposit' || operation.type === 'transfer') {
+        return acc + parseFloat(String(operation.amount));
       } else {
-        return acc - operation.amount;
+        return acc - parseFloat(String(operation.amount));
       }
-    }, 0)
+    }, 0);
+
+    statement = statement.concat(statementSended);
+
+    const statementTransferValues = statementSended.reduce(
+      (total = balance, operation) => {
+        return total + parseFloat(String(operation.amount));
+      },
+      0
+    );
+
+    balance -= statementTransferValues | 0;
 
     if (with_statement) {
       return {
         statement,
-        balance
+        balance,
       }
     }
 
